@@ -58,14 +58,12 @@ class GameWindow:
 
     def send_movement(self, direction):
         print(f"Moving {direction}")
-        active_player = self.client.active_player
-        print(active_player)
-        message = {"action": "move", "direction": direction, "player": active_player}
+
+        message = {"action": "move", "direction": direction}
         self.server_connection.send(json.dumps(message).encode('ascii'))
 
     def send_attack(self, attack_type):
-        active_player = self.client.active_player
-        message = {"action": "attack", "type": attack_type, "player": active_player}
+        message = {"action": "attack", "type": attack_type}
         self.server_connection.send(json.dumps(message).encode('ascii'))
 
     def handle_server_message(self, message):
@@ -73,7 +71,6 @@ class GameWindow:
         print(data)
         if data['action'] == 'initialize':
             if 'player_number' in data:
-                self.client.active_player = data['player_number']
                 self.draw_player(data['player_number'], data['position'])
             else:
                 for player_id, position in data['positions'].items():

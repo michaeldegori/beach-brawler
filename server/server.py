@@ -42,7 +42,7 @@ def client_handler(client_socket, client_address):
 
                 # Determine action sent
                 if data['action'] == 'move':
-                    response = handle_move(data, data['player'])
+                    response = handle_move(data, client_address)
                 elif data['action'] == 'attack':
                     response = handle_attack(data)
                 elif data['action'] == 'restart':
@@ -96,9 +96,8 @@ def start_game():
         address.send(json.dumps(message).encode('ascii'))
 
 
-def handle_move(data, player_id):
-    player = active_players.get(player_id)
-    print(active_players, player, player_id)
+def handle_move(data, client_address):
+    player = active_players.get(client_address)
 
     if not player:
         return {"status": "error", "message": "Player not found"}
@@ -110,7 +109,6 @@ def handle_move(data, player_id):
         "status": "success",
         "message": f"Moved {data['direction']}",
         "new_position": player.position,
-        "player": player_id
     }
 
 
