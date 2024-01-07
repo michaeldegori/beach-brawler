@@ -1,11 +1,15 @@
 import json
 import socket
 import threading
+import time
+
+import math
 
 from game_logic.player import Player
 
 active_players = {}
 players_in_queue = []
+client_sockets = {}
 
 
 def client_handler(client_socket, client_address):
@@ -23,8 +27,7 @@ def client_handler(client_socket, client_address):
         "player_number": player_number,
         "position": new_player.position
     }
-    print("Sending to client:", message)
-    client_socket.send(json.dumps(message).encode('ascii'))
+    client_socket.send((json.dumps(message)).encode('ascii'))
 
     # Add the new player to the active players or queue based on the player count
     if player_number <= 2:
@@ -32,7 +35,7 @@ def client_handler(client_socket, client_address):
         if len(active_players) == 2:
             start_game()
     else:
-        players_in_queue.append((client_address, new_player))
+        players_in_queue.append({client_address: new_player})
 
     while True:
         try:
@@ -41,19 +44,22 @@ def client_handler(client_socket, client_address):
                 data = json.loads(message)
 
                 # Determine action sent
-                if data['action'] == 'move':
-                    response = handle_move(data, client_address)
+                if data['action'] == 'start_moving':
+                    response = handle_start_moving(data, client_address)
+                elif data['action'] == 'stop_moving':
+                    response = handle_stop_moving(data, client_address)
+
                 elif data['action'] == 'jump':
                     response = handle_jump(client_address)
                 elif data['action'] == 'attack':
                     response = handle_attack(data)
                 elif data['action'] == 'restart':
                     response = handle_restart(client_address)
-                    client_socket.send(json.dumps(response).encode('ascii'))
+                    client_socket.send((json.dumps(response)).encode('ascii'))
                 else:
                     response = {"status": 'error', "message": "Unknown action"}
 
-                client_socket.send(json.dumps(response).encode('ascii'))
+                client_socket.send((json.dumps(response)).encode('ascii'))
             else:
                 print(f"Connection closed by {client_address}")
                 break
@@ -71,6 +77,33 @@ def initial_position(player_number):
         return 500, 318
 
 
+def game_loop():
+    while True:
+        for client_address, player in list(active_players.items()):
+            player.update()  # TODO: Ensure this works with gravity and movement
+
+            position_delta_x = abs(player.position[0] - player.last_known_position[0])
+            position_delta_y = abs(player.position[1] - player.last_known_position[1])
+
+            combined_delta = math.sqrt(position_delta_x ** 2 + position_delta_y ** 2)
+
+            if combined_delta > 1:  # Threshold for significant positional change
+                update_message = {
+                    "action": "update_position",
+                    "new_position": player.position,
+                }
+                try:
+                    client_sockets[client_address].send((json.dumps(update_message)).encode('ascii'))
+                    player.last_known_position = player.position  # Update the last known position
+                except Exception as e:
+                    print(f"Error sending update to {client_address}: {e}")
+                    active_players.pop(client_address, None)
+                    client_sockets.pop(client_address, None)
+
+        # Sleep for 1/30th of a second (30FPS)
+        time.sleep(0.033)
+
+
 def start_server():
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -81,8 +114,11 @@ def start_server():
     server_socket.listen(5)
     print(f"Server listening on {host}:{port}")
 
+    threading.Thread(target=game_loop, daemon=True).start()
+
     while True:
         client_socket, client_address = server_socket.accept()
+        client_sockets[client_address] = client_socket
 
         threading.Thread(target=client_handler, args=(client_socket, client_address)).start()
 
@@ -114,20 +150,22 @@ def handle_jump(client_address):
     }
 
 
-def handle_move(data, client_address):
+def handle_start_moving(data, client_address):
     player = active_players.get(client_address)
-
     if not player:
         return {"status": "error", "message": "Player not found"}
 
-    player.move(data['direction'])
-    print(f"Moved {data['direction']}")
+    player.start_moving(data['direction'])
+    return {"status": "success", "action": "start_moving", "message": f"Started moving {data['direction']}"}
 
-    return {
-        "status": "success",
-        "message": f"Moved {data['direction']}",
-        "new_position": player.position,
-    }
+
+def handle_stop_moving(data, client_address):
+    player = active_players.get(client_address)
+    if not player:
+        return {"status": "error", "message": "Player not found"}
+
+    player.stop_moving()
+    return {"status": "success", "action": "stop_moving", "message": f"Stopped moving {data['direction']}"}
 
 
 def handle_attack(data, player_id):

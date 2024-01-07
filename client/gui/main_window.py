@@ -1,5 +1,5 @@
 import json
-import socket
+import threading
 import tkinter as tk
 
 
@@ -15,12 +15,11 @@ class GameWindow:
         self.bg_image = tk.PhotoImage(file='client/gui/assets/backgrounds/beach-bg.gif')
         self.canvas.create_image(0, 0, anchor='nw', image=self.bg_image)
 
-        self.player_visuals = {}
+        self.player_visual = None
 
-        self.parent.bind('w', lambda e: self.send_jump())
-        self.parent.bind('a', lambda e: self.send_movement('left'))
-        self.parent.bind('d', lambda e: self.send_movement('right'))
-        self.parent.bind('i', lambda e: self.send_attack('medium_punch'))
+        self.key_is_pressed = False
+        self.parent.bind('<KeyPress>', self.on_key_press)
+        self.parent.bind('<KeyRelease>', self.on_key_release)
 
         self.handle_initial_data(self.initial_data)
 
@@ -28,12 +27,12 @@ class GameWindow:
         print("Processing initial data:", initial_data)
         if 'action' in initial_data and initial_data['action'] == 'initialize':
             if 'player_number' in initial_data:
-                self.draw_player(initial_data['player_number'], initial_data['position'])
+                self.draw_player(initial_data['position'])
             else:
                 for player_id, position in initial_data['positions'].items():
-                    self.draw_player(player_id, position)
+                    self.draw_player(position)
 
-    def draw_player(self, player_id, position):
+    def draw_player(self, position):
         width = 100
         height = 150
         x, y = position
@@ -42,14 +41,11 @@ class GameWindow:
         x1, y1 = x - width / 2, y - height / 2
         x2, y2 = x + width / 2, y + height / 2
 
-        # Create a rectangle on the canvas to represent the player
-        rect = self.canvas.create_rectangle(x1, y1, x2, y2, fill="blue" if player_id == 1 else "red")
-
         # Store the visual representation with the player's ID
-        self.player_visuals[player_id] = rect
-        print(f"Drawing player {player_id} at {position}")
+        self.player_visual = self.canvas.create_rectangle(x1, y1, x2, y2, fill="blue")
+        print(f"Drawing player at {position}")
 
-    def update_player_position(self, player_id, new_position):
+    def update_player_position(self, new_position):
         width = 100
         height = 150
         x, y = new_position
@@ -57,8 +53,8 @@ class GameWindow:
         x1, y1 = x - width / 2, y - height / 2
         x2, y2 = x + width / 2, y + height / 2
 
-        rect = self.player_visuals[player_id]
-        self.canvas.coords(rect, x1, y1, x2, y2)
+        self.canvas.coords(self.player_visual, x1, y1, x2, y2)
+        print(f"Moving player to {new_position}")
 
     def setup_restart(self):
         self.parent.bind(' ', self.restart_game)
@@ -73,10 +69,31 @@ class GameWindow:
         message = {"action": "jump"}
         self.server_connection.send(json.dumps(message).encode('ascii'))
 
-    def send_movement(self, direction):
-        print(f"Moving {direction}")
+    def on_key_press(self, event):
+        self.key_is_pressed = True
 
-        message = {"action": "move", "direction": direction}
+        #  Move right
+        if event.keysym == 'd':
+            self.send_movement('right', True)
+        #  Move left
+        if event.keysym == 'a':
+            self.send_movement('left', True)
+        #  Jump
+        if event.keysym == 'w':
+            self.send_jump()
+        #  Medium punch
+        if event.keysym == 'i':
+            self.send_attack('medium_punch')
+
+    def on_key_release(self, event):
+        self.key_is_pressed = False
+
+        if event.keysym in ['d', 'a']:
+            self.send_movement(event.keysym, False)
+
+    def send_movement(self, direction, start):
+        action = 'start_moving' if start else 'stop_moving'
+        message = {"action": action, "direction": direction}
         self.server_connection.send(json.dumps(message).encode('ascii'))
 
     def send_attack(self, attack_type):
@@ -91,7 +108,7 @@ class GameWindow:
                 return
 
             elif data['action'] == 'update_position':
-                self.update_player_position(data['player'], data['new_position'])
+                self.update_player_position(data['new_position'])
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
             print(f"Faulty message: {message}")
@@ -100,19 +117,19 @@ class GameWindow:
         except Exception as e:
             print(f"Unexpected error: {e}")
 
-    def check_for_server_message(self):
-        try:
-            server_message = self.server_connection.recv(1024, socket.MSG_DONTWAIT).decode('ascii')
-            if server_message:
-                print("Received from server:", server_message)
-                self.handle_server_message(server_message)
-        except BlockingIOError:
-            pass
-        except Exception as e:
-            print(f"Error receiving server message: {e}")
-        finally:
-            self.parent.after(100, self.check_for_server_message)
+    def listen_to_server(self):
+        #  Continuously listen for messages from the server and handle them
+        while True:
+            try:
+                server_message = self.server_connection.recv(1024).decode('ascii')
+                if server_message:
+                    # print("Received from server:", server_message)
+                    self.handle_server_message(server_message)
+            except Exception as e:
+                print(f"Error receiving server message: {e}")
+                break
 
     def run(self):
-        self.check_for_server_message()
+        listener_thread = threading.Thread(target=self.listen_to_server, daemon=True)
+        listener_thread.start()
         self.parent.mainloop()
