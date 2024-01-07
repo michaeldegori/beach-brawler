@@ -2,13 +2,14 @@ class Player:
     def __init__(self, id, position=(0, 0)):
         self.id = id
         self.position = position
-        self.health = 100  # Starting Health
+        self.health = 100
+        self.vertical_velocity = 0
+
+    def jump(self):
+        if self.vertical_velocity == 0:
+            self.vertical_velocity = -25
 
     def move(self, direction):
-        if direction == 'up':
-            self.position = (self.position[0], self.position[1] + 1)
-        if direction == 'down':
-            self.position = (self.position[0], self.position[1] - 1)
         if direction == 'left':
             self.position = (self.position[0] - 1, self.position[1])
         if direction == 'right':

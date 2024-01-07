@@ -43,6 +43,8 @@ def client_handler(client_socket, client_address):
                 # Determine action sent
                 if data['action'] == 'move':
                     response = handle_move(data, client_address)
+                elif data['action'] == 'jump':
+                    response = handle_jump(client_address)
                 elif data['action'] == 'attack':
                     response = handle_attack(data)
                 elif data['action'] == 'restart':
@@ -64,9 +66,9 @@ def client_handler(client_socket, client_address):
 
 def initial_position(player_number):
     if player_number == 1:
-        return 100, 240
+        return 100, 318
     elif player_number == 2:
-        return 500, 240
+        return 500, 318
 
 
 def start_server():
@@ -94,6 +96,22 @@ def start_game():
             "positions": initial_positions
         }
         address.send(json.dumps(message).encode('ascii'))
+
+
+def handle_jump(client_address):
+    player = active_players.get(client_address)
+
+    if not player:
+        return {"status": "error", "message": "Player not found"}
+
+    player.jump()
+    print("Jumped")
+
+    return {
+        "status": "success",
+        "message": "Jumped",
+        "new_position": player.position,
+    }
 
 
 def handle_move(data, client_address):
