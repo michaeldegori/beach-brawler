@@ -4,10 +4,12 @@ class Player:
         self.position = position
         self.last_known_position = position
         self.health = 100
-        self.vertical_velocity = 0
         self.is_moving = False
         self.direction = None
         self.speed = 10
+        self.vertical_velocity = 0
+        self.gravity = 4
+        self.jump_strength = 30
 
     def start_moving(self, direction):
         self.is_moving = True
@@ -38,7 +40,7 @@ class Player:
 
         # If the player is in the air, apply gravity.
         if self.position[1] < 318 or self.vertical_velocity < 0:
-            self.vertical_velocity += 2  # Simulate gravity
+            self.vertical_velocity += self.gravity  # Simulate gravity
 
         # If the player is on the ground, reset the vertical velocity.
         if self.position[1] >= 318:
@@ -48,7 +50,7 @@ class Player:
     def jump(self):
         # Only allow the player to jump if they are on the ground
         if self.position[1] >= 318 and self.vertical_velocity == 0:
-            self.vertical_velocity = -25  # Adjust as needed for the jump strength
+            self.vertical_velocity = -self.jump_strength  # Adjust as needed for the jump strength
 
     def attack(self, target_opponent):
         target_opponent.health -= 10
