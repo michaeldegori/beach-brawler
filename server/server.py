@@ -27,7 +27,7 @@ def client_handler(client_socket, client_address):
         "player_number": player_number,
         "position": new_player.position
     }
-    client_socket.send((json.dumps(message)).encode('ascii'))
+    client_socket.send((json.dumps(message) + '\n').encode('ascii'))
 
     # Add the new player to the active players or queue based on the player count
     if player_number <= 2:
@@ -37,29 +37,15 @@ def client_handler(client_socket, client_address):
     else:
         players_in_queue.append({client_address: new_player})
 
+    buffer = ""
     while True:
         try:
-            message = client_socket.recv(1024).decode('ascii')
-            if message:
-                data = json.loads(message)
-
-                # Determine action sent
-                if data['action'] == 'start_moving':
-                    response = handle_start_moving(data, client_address)
-                elif data['action'] == 'stop_moving':
-                    response = handle_stop_moving(data, client_address)
-
-                elif data['action'] == 'jump':
-                    response = handle_jump(client_address)
-                elif data['action'] == 'attack':
-                    response = handle_attack(data)
-                elif data['action'] == 'restart':
-                    response = handle_restart(client_address)
-                    client_socket.send((json.dumps(response)).encode('ascii'))
-                else:
-                    response = {"status": 'error', "message": "Unknown action"}
-
-                client_socket.send((json.dumps(response)).encode('ascii'))
+            data = client_socket.recv(1024).decode('ascii')
+            if data:
+                buffer += data
+                while '\n' in buffer:
+                    message, buffer = buffer.split('\n', 1)
+                    handle_client_message(message, client_socket, client_address)
             else:
                 print(f"Connection closed by {client_address}")
                 break
@@ -68,6 +54,27 @@ def client_handler(client_socket, client_address):
             break
 
     client_socket.close()
+
+
+def handle_client_message(message, client_socket, client_address):
+    data = json.loads(message)
+
+    # Determine action sent
+    if data['action'] == 'start_moving':
+        response = handle_start_moving(data, client_address)
+    elif data['action'] == 'stop_moving':
+        response = handle_stop_moving(data, client_address)
+
+    elif data['action'] == 'jump':
+        response = handle_jump(client_address)
+    elif data['action'] == 'attack':
+        response = handle_attack(data)
+    elif data['action'] == 'restart':
+        response = handle_restart(client_address)
+    else:
+        response = {"status": 'error', "message": "Unknown action"}
+
+    client_socket.send((json.dumps(response) + '\n').encode('ascii'))
 
 
 def initial_position(player_number):
@@ -80,28 +87,37 @@ def initial_position(player_number):
 def game_loop():
     while True:
         for client_address, player in list(active_players.items()):
-            player.update()  # TODO: Ensure this works with gravity and movement
+            player.update()
 
-            position_delta_x = abs(player.position[0] - player.last_known_position[0])
-            position_delta_y = abs(player.position[1] - player.last_known_position[1])
-
-            combined_delta = math.sqrt(position_delta_x ** 2 + position_delta_y ** 2)
-
-            if combined_delta > 1:  # Threshold for significant positional change
-                update_message = {
-                    "action": "update_position",
-                    "new_position": player.position,
-                }
+            if significant_position_change(player):
                 try:
-                    client_sockets[client_address].send((json.dumps(update_message)).encode('ascii'))
-                    player.last_known_position = player.position  # Update the last known position
+                    update_message = {
+                        "action": "update_position",
+                        "new_position": player.position,
+                    }
+                    client_sockets[client_address].send((json.dumps(update_message) + '\n').encode('ascii'))
+                    player.last_known_position = player.position
                 except Exception as e:
                     print(f"Error sending update to {client_address}: {e}")
-                    active_players.pop(client_address, None)
-                    client_sockets.pop(client_address, None)
+                    disconnect_client(client_address)
 
         # Sleep for 1/30th of a second (30FPS)
         time.sleep(0.033)
+
+
+def significant_position_change(player):
+    # Implement your logic to determine if the position has changed significantly
+    # For example:
+    position_delta_x = abs(player.position[0] - player.last_known_position[0])
+    position_delta_y = abs(player.position[1] - player.last_known_position[1])
+    combined_delta = math.sqrt(position_delta_x ** 2 + position_delta_y ** 2)
+
+    return combined_delta > 1
+
+
+def disconnect_client(client_address):
+    active_players.pop(client_address, None)
+    client_sockets.pop(client_address, None)
 
 
 def start_server():
@@ -136,18 +152,13 @@ def start_game():
 
 def handle_jump(client_address):
     player = active_players.get(client_address)
-
     if not player:
         return {"status": "error", "message": "Player not found"}
 
     player.jump()
-    print("Jumped")
+    print(f"Player {player.id} jumped")
 
-    return {
-        "status": "success",
-        "message": "Jumped",
-        "new_position": player.position,
-    }
+    return {"status": "success", "message": "Jumped"}
 
 
 def handle_start_moving(data, client_address):

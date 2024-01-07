@@ -18,6 +18,8 @@ class GameWindow:
         self.player_visual = None
 
         self.key_is_pressed = False
+        self.current_moving_direction = None
+        self.movement_keys_stack = []
         self.parent.bind('<KeyPress>', self.on_key_press)
         self.parent.bind('<KeyRelease>', self.on_key_release)
 
@@ -61,44 +63,69 @@ class GameWindow:
 
     def restart_game(self, event=None):
         restart_message = {"action": "restart"}
-        self.server_connection.send(json.dumps(restart_message).encode('ascii'))
+        self.server_connection.send((json.dumps(restart_message) + "\n").encode('ascii'))
 
     def send_jump(self):
         print("Jumping")
 
         message = {"action": "jump"}
-        self.server_connection.send(json.dumps(message).encode('ascii'))
+        self.server_connection.send((json.dumps(message) + "\n").encode('ascii'))
 
     def on_key_press(self, event):
         self.key_is_pressed = True
 
-        #  Move right
-        if event.keysym == 'd':
-            self.send_movement('right', True)
-        #  Move left
-        if event.keysym == 'a':
-            self.send_movement('left', True)
-        #  Jump
+        # Add the pressed key to the stack if it's not already in it
+        if event.keysym in ['d', 'a'] and event.keysym not in self.movement_keys_stack:
+            self.movement_keys_stack.append(event.keysym)
+
+        # Jump
         if event.keysym == 'w':
             self.send_jump()
-        #  Medium punch
+
+        # Attack
         if event.keysym == 'i':
             self.send_attack('medium_punch')
 
-    def on_key_release(self, event):
-        self.key_is_pressed = False
+        # TODO: Quit / Leave fight
+        # if event.keysym == 'q':
+        #     self.quit()
 
+        # Send movement command for the most recent key
+        self.update_movement()
+
+    def on_key_release(self, event):
         if event.keysym in ['d', 'a']:
-            self.send_movement(event.keysym, False)
+            # Remove the released key from the stack
+            if event.keysym in self.movement_keys_stack:
+                self.movement_keys_stack.remove(event.keysym)
+
+            # Update the movement based on the remaining keys in the stack
+            self.update_movement()
+
+    def update_movement(self):
+        if self.movement_keys_stack:
+            # Get the most recent key
+            current_key = self.movement_keys_stack[-1]
+            if current_key == 'd':
+                self.send_movement('right', True)
+            elif current_key == 'a':
+                self.send_movement('left', True)
+        else:
+            # No keys in the stack, stop the movement
+            if self.current_moving_direction:
+                self.send_movement(self.current_moving_direction, False)
+                self.current_moving_direction = None
 
     def send_movement(self, direction, start):
+        # Update the current moving direction
+        self.current_moving_direction = direction if start else None
         action = 'start_moving' if start else 'stop_moving'
         message = {"action": action, "direction": direction}
-        self.server_connection.send(json.dumps(message).encode('ascii'))
+        self.server_connection.send((json.dumps(message) + "\n").encode('ascii'))
 
     def send_attack(self, attack_type):
         message = {"action": "attack", "type": attack_type}
-        self.server_connection.send(json.dumps(message).encode('ascii'))
+        self.server_connection.send((json.dumps(message) + "\n").encode('ascii'))
 
     def handle_server_message(self, message):
         try:
