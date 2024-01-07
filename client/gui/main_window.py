@@ -28,13 +28,18 @@ class GameWindow:
     def handle_initial_data(self, initial_data):
         print("Processing initial data:", initial_data)
         if 'action' in initial_data and initial_data['action'] == 'initialize':
-            if 'player_number' in initial_data:
-                self.draw_player(initial_data['position'])
-            else:
-                for player_id, position in initial_data['positions'].items():
-                    self.draw_player(position)
+            # Store the player's number if it's provided
+            self_player_number = initial_data.get('player_number')
 
-    def draw_player(self, position):
+            # If 'positions' are provided, initialize every player from it
+            if 'positions' in initial_data:
+                for player_id, position in initial_data['positions'].items():
+                    self.draw_player(position, player_id)
+            elif self_player_number is not None:
+                # If only 'player_number' is provided, initialize just this player
+                self.draw_player(initial_data['position'], self_player_number)
+
+    def draw_player(self, position, player_number):
         width = 100
         height = 150
         x, y = position
@@ -44,7 +49,10 @@ class GameWindow:
         x2, y2 = x + width / 2, y + height / 2
 
         # Store the visual representation with the player's ID
-        self.player_visual = self.canvas.create_rectangle(x1, y1, x2, y2, fill="blue")
+        if player_number == 1:
+            self.player_visual = self.canvas.create_rectangle(x1, y1, x2, y2, fill="blue")
+        else:
+            self.player_visual = self.canvas.create_rectangle(x1, y1, x2, y2, fill="red")
         print(f"Drawing player at {position}")
 
     def update_player_position(self, new_position):

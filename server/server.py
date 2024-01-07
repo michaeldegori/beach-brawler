@@ -141,13 +141,18 @@ def start_server():
 
 def start_game():
     print("Game started")
-    for address, player in active_players.items():
-        initial_positions = {p.id: p.position for p in active_players}
+    initial_positions = {player.id: player.position for player in active_players.values()}
+    for address, player in list(active_players.items()):
         message = {
             "action": "initialize",
+            "player_number": player.id,
             "positions": initial_positions
         }
-        address.send(json.dumps(message).encode('ascii'))
+        try:
+            client_sockets[address].send((json.dumps(message) + '\n').encode('ascii'))
+        except Exception as e:
+            print(f"Error sending initial data to {address}: {e}")
+            disconnect_client(address)
 
 
 def handle_jump(client_address):
