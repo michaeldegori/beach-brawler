@@ -90,12 +90,6 @@ class GameWindow:
             if 'action' not in data:
                 return
 
-            if data['action'] == 'initialize':
-                if 'player_number' in data:
-                    self.draw_player(data['player_number'], data['position'])
-                else:
-                    for player_id, position in data['positions'].items():
-                        self.draw_player(player_id, position)
             elif data['action'] == 'update_position':
                 self.update_player_position(data['player'], data['new_position'])
         except json.JSONDecodeError as e:
