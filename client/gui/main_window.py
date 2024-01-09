@@ -132,10 +132,21 @@ class GameWindow:
     def handle_server_message(self, message):
         try:
             data = json.loads(message)
-            if 'action' in data:
-                if data['action'] == 'update_position' and 'players' in data:
-                    self.update_player_position(data['players'])
-                # handle other actions
+            # Check if 'action' is in the message before trying to access it
+            if 'action' not in data:
+                return
+
+            if data['action'] == 'initialize':
+                if 'players' in data:
+                    for idx, player_info in enumerate(data['players']):
+                        if player_info:
+                            # Check if the player needs to be drawn (i.e., not already drawn)
+                            if self.player_visuals[idx] is None:
+                                self.draw_player(idx, player_info['position'])
+                            else:
+                                self.move_player_visual(idx, player_info['position'])
+            elif data['action'] == 'update_position':
+                self.update_player_position(data['players'])
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
             print(f"Faulty message: {message}")

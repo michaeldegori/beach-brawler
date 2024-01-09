@@ -32,7 +32,8 @@ def client_handler(client_socket, client_address):
         "action": "initialize",
         "players": player_data
     }
-    client_socket.send((json.dumps(message) + '\n').encode('ascii'))
+    for _, client_socket in client_sockets.items():
+        client_socket.send((json.dumps(message) + '\n').encode('ascii'))
 
     buffer = ""
     while True:
@@ -97,13 +98,13 @@ def game_loop():
             if significant_position_change(player.position, player.last_known_position):
                 player.last_known_position = player.position
 
-            # Broadcast the update to all clients
-            for port, client_socket in client_sockets.items():
-                try:
-                    client_socket.send((json.dumps(update_message) + '\n').encode('ascii'))
-                except Exception as e:
-                    print(f"Error sending update to {port}: {e}")
-                    disconnect_client(port)
+                # Broadcast the update to all clients
+                for port, client_socket in client_sockets.items():
+                    try:
+                        client_socket.send((json.dumps(update_message) + '\n').encode('ascii'))
+                    except Exception as e:
+                        print(f"Error sending update to {port}: {e}")
+                        disconnect_client(port)
 
         # Sleep for 1/30th of a second (30FPS)
         time.sleep(0.033)
