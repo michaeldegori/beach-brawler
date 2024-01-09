@@ -1,41 +1,38 @@
 import json
+import math
 import socket
 import threading
 import time
 
-import math
-
 from game_logic.player import Player
 
-active_players = {}
+active_players = (None, None)
 players_in_queue = []
 client_sockets = {}
 
 
 def client_handler(client_socket, client_address):
-    print(f"New connection: {client_address}")
+    global active_players
     _, port = client_address
+    print(f"New connection: {port}")
 
-    # Determine the player's number based on the current number of active players
-    player_number = len(active_players) + 1
+    # Determine the player's role
+    if active_players[0] is None:
+        new_player = Player(port, initial_position(1))
+        active_players = (new_player, active_players[1])
+    elif active_players[1] is None:
+        new_player = Player(port, initial_position(2))
+        active_players = (active_players[0], new_player)
+    else:
+        new_player = Player(port)
+        players_in_queue.append(new_player)
 
-    # Create a new player with the initial position
-    new_player = Player(port, initial_position(player_number))
-
+    player_data = tuple({'id': p.id, 'position': p.position} if p is not None else None for p in active_players)
     message = {
         "action": "initialize",
-        "player_number": player_number,
-        "position": new_player.position
+        "players": player_data
     }
     client_socket.send((json.dumps(message) + '\n').encode('ascii'))
-
-    # Add the new player to the active players or queue based on the player count
-    if player_number <= 2:
-        active_players[client_address] = new_player
-        if len(active_players) == 2:
-            start_game()
-    else:
-        players_in_queue.append({client_address: new_player})
 
     buffer = ""
     while True:
@@ -45,32 +42,31 @@ def client_handler(client_socket, client_address):
                 buffer += data
                 while '\n' in buffer:
                     message, buffer = buffer.split('\n', 1)
-                    handle_client_message(message, client_socket, client_address)
+                    handle_client_message(message, client_socket, port)
             else:
-                print(f"Connection closed by {client_address}")
+                print(f"Connection closed by {port}")
                 break
         except Exception as e:
-            print(f"Error with {client_address}: {e}")
+            print(f"Error with {port}: {e}")
             break
 
     client_socket.close()
 
 
-def handle_client_message(message, client_socket, client_address):
+def handle_client_message(message, client_socket, port):
     data = json.loads(message)
 
     # Determine action sent
     if data['action'] == 'start_moving':
-        response = handle_start_moving(data, client_address)
+        response = handle_start_moving(data, port)
     elif data['action'] == 'stop_moving':
-        response = handle_stop_moving(data, client_address)
-
+        response = handle_stop_moving(data, port)
     elif data['action'] == 'jump':
-        response = handle_jump(client_address)
+        response = handle_jump(port)
     elif data['action'] == 'attack':
         response = handle_attack(data)
     elif data['action'] == 'restart':
-        response = handle_restart(client_address)
+        response = handle_restart(port)
     else:
         response = {"status": 'error', "message": "Unknown action"}
 
@@ -86,38 +82,58 @@ def initial_position(player_number):
 
 def game_loop():
     while True:
-        for client_address, player in list(active_players.items()):
+        player_data = tuple({'id': p.id, 'position': p.position} if p is not None else None for p in active_players)
+        update_message = {
+            "action": "update_position",
+            "players": player_data
+        }
+
+        for player in active_players:
+            if player is None:
+                continue
+
             player.update()
 
-            if significant_position_change(player):
+            if significant_position_change(player.position, player.last_known_position):
+                player.last_known_position = player.position
+
+            # Broadcast the update to all clients
+            for port, client_socket in client_sockets.items():
                 try:
-                    update_message = {
-                        "action": "update_position",
-                        "new_position": player.position,
-                    }
-                    client_sockets[client_address].send((json.dumps(update_message) + '\n').encode('ascii'))
-                    player.last_known_position = player.position
+                    client_socket.send((json.dumps(update_message) + '\n').encode('ascii'))
                 except Exception as e:
-                    print(f"Error sending update to {client_address}: {e}")
-                    disconnect_client(client_address)
+                    print(f"Error sending update to {port}: {e}")
+                    disconnect_client(port)
 
         # Sleep for 1/30th of a second (30FPS)
         time.sleep(0.033)
 
 
-def significant_position_change(player):
-    # Implement your logic to determine if the position has changed significantly
-    # For example:
-    position_delta_x = abs(player.position[0] - player.last_known_position[0])
-    position_delta_y = abs(player.position[1] - player.last_known_position[1])
+def significant_position_change(current_position, last_known_position):
+    position_delta_x = abs(current_position[0] - last_known_position[0])
+    position_delta_y = abs(current_position[1] - last_known_position[1])
     combined_delta = math.sqrt(position_delta_x ** 2 + position_delta_y ** 2)
 
     return combined_delta > 1
 
 
-def disconnect_client(client_address):
-    active_players.pop(client_address, None)
-    client_sockets.pop(client_address, None)
+def disconnect_client(port):
+    global active_players, players_in_queue
+
+    # Replace the disconnected player's slot with either None or the next player in the queue
+    updated_active_players = []
+    for player in active_players:
+        if player is not None and player.id == port:
+            if players_in_queue:
+                # Move the next player from the queue to active players
+                updated_active_players.append(players_in_queue.pop(0))
+            else:
+                updated_active_players.append(None)
+        else:
+            updated_active_players.append(player)
+    active_players = tuple(updated_active_players)
+
+    client_sockets.pop(port, None)
 
 
 def start_server():
@@ -134,29 +150,31 @@ def start_server():
 
     while True:
         client_socket, client_address = server_socket.accept()
-        client_sockets[client_address] = client_socket
+        _, port = client_address
+        client_sockets[port] = client_socket
 
         threading.Thread(target=client_handler, args=(client_socket, client_address)).start()
 
 
 def start_game():
     print("Game started")
-    initial_positions = {player.id: player.position for player in active_players.values()}
-    for address, player in list(active_players.items()):
-        message = {
-            "action": "initialize",
-            "player_number": player.id,
-            "positions": initial_positions
-        }
-        try:
-            client_sockets[address].send((json.dumps(message) + '\n').encode('ascii'))
-        except Exception as e:
-            print(f"Error sending initial data to {address}: {e}")
-            disconnect_client(address)
+    # TODO: do i need all this? Lol
+    # initial_positions = {player.id: player.position for player in active_players.values()}
+    # for address, player in list(active_players.items()):
+    #     message = {
+    #         "action": "initialize",
+    #         "player_role": player.role,
+    #         "positions": initial_positions
+    #     }
+    #     try:
+    #         client_sockets[address].send((json.dumps(message) + '\n').encode('ascii'))
+    #     except Exception as e:
+    #         print(f"Error sending initial data to {address}: {e}")
+    #         disconnect_client(address)
 
 
-def handle_jump(client_address):
-    player = active_players.get(client_address)
+def handle_jump(port):
+    player = next((p for p in active_players if p and p.id == port), None)
     if not player:
         return {"status": "error", "message": "Player not found"}
 
@@ -166,8 +184,8 @@ def handle_jump(client_address):
     return {"status": "success", "message": "Jumped"}
 
 
-def handle_start_moving(data, client_address):
-    player = active_players.get(client_address)
+def handle_start_moving(data, port):
+    player = next((p for p in active_players if p and p.id == port), None)
     if not player:
         return {"status": "error", "message": "Player not found"}
 
@@ -175,8 +193,8 @@ def handle_start_moving(data, client_address):
     return {"status": "success", "action": "start_moving", "message": f"Started moving {data['direction']}"}
 
 
-def handle_stop_moving(data, client_address):
-    player = active_players.get(client_address)
+def handle_stop_moving(data, port):
+    player = next((p for p in active_players if p and p.id == port), None)
     if not player:
         return {"status": "error", "message": "Player not found"}
 

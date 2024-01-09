@@ -15,14 +15,25 @@ class Client:
         self.root = tk.Tk()
         self.game_window = GameWindow(self.root, self.server_connection, self, self.initial_data)
 
-        self.active_player = self.initial_data.get("player_number")
+        # Determine player role based on initial data
+        self.player_id = None
+        self.player_role = self.determine_player_role(self.initial_data.get("players"))
 
-        if self.active_player:
-            self.root.title(f"Beach Brawler - Player {self.active_player}")
-        else:
-            self.root.title("Beach Brawler - Spectating")
+        subtitle = 'Spectating' if self.player_role == 'spectator' else self.player_role
+        self.root.title(f"Beach Brawler - {subtitle}")
 
         self.root.bind('q', self.quit_application)
+
+    def determine_player_role(self, players):
+        self.player_id = None
+        for idx, player_info in enumerate(players):
+            if player_info:
+                _, my_port = self.server_connection.getsockname()
+
+                if my_port == player_info['id']:
+                    self.player_id = player_info['id']
+                    return 'player1' if idx == 0 else 'player2'
+        return 'spectator'
 
     @staticmethod
     def create_client_socket():

@@ -15,7 +15,8 @@ class GameWindow:
         self.bg_image = tk.PhotoImage(file='client/gui/assets/backgrounds/beach-bg.gif')
         self.canvas.create_image(0, 0, anchor='nw', image=self.bg_image)
 
-        self.player_visual = None
+        self.player_role = initial_data.get('player_role')
+        self.player_visuals = [None, None]
 
         self.key_is_pressed = False
         self.current_moving_direction = None
@@ -27,44 +28,37 @@ class GameWindow:
 
     def handle_initial_data(self, initial_data):
         print("Processing initial data:", initial_data)
-        if 'action' in initial_data and initial_data['action'] == 'initialize':
-            # Store the player's number if it's provided
-            self_player_number = initial_data.get('player_number')
 
-            # If 'positions' are provided, initialize every player from it
-            if 'positions' in initial_data:
-                for player_id, position in initial_data['positions'].items():
-                    self.draw_player(position, player_id)
-            elif self_player_number is not None:
-                # If only 'player_number' is provided, initialize just this player
-                self.draw_player(initial_data['position'], self_player_number)
+        if 'players' in initial_data:
+            for idx, player_info in enumerate(initial_data['players']):
+                if player_info:
+                    self.draw_player(idx, player_info['position'])
 
-    def draw_player(self, position, player_number):
+    def draw_player(self, player_idx, position):
         width = 100
         height = 150
         x, y = position
-
-        # Calculate the top-left and bottom-right coordinates
         x1, y1 = x - width / 2, y - height / 2
         x2, y2 = x + width / 2, y + height / 2
 
-        # Store the visual representation with the player's ID
-        if player_number == 1:
-            self.player_visual = self.canvas.create_rectangle(x1, y1, x2, y2, fill="blue")
-        else:
-            self.player_visual = self.canvas.create_rectangle(x1, y1, x2, y2, fill="red")
-        print(f"Drawing player at {position}")
+        color = "blue" if player_idx == 0 else "red"
+        self.player_visuals[player_idx] = self.canvas.create_rectangle(x1, y1, x2, y2, fill=color)
+        print(f"Drawing player {player_idx + 1} at {position}")
 
-    def update_player_position(self, new_position):
-        width = 100
-        height = 150
-        x, y = new_position
+    def update_player_position(self, players_data):
+        for idx, player_info in enumerate(players_data):
+            if player_info:
+                self.move_player_visual(idx, player_info['position'])
 
-        x1, y1 = x - width / 2, y - height / 2
-        x2, y2 = x + width / 2, y + height / 2
-
-        self.canvas.coords(self.player_visual, x1, y1, x2, y2)
-        print(f"Moving player to {new_position}")
+    def move_player_visual(self, player_idx, new_position):
+        if self.player_visuals[player_idx] is not None:
+            width = 100
+            height = 150
+            x, y = new_position
+            x1, y1 = x - width / 2, y - height / 2
+            x2, y2 = x + width / 2, y + height / 2
+            self.canvas.coords(self.player_visuals[player_idx], x1, y1, x2, y2)
+            print(f"Moving player {player_idx + 1} to {new_position}")
 
     def setup_restart(self):
         self.parent.bind(' ', self.restart_game)
@@ -138,12 +132,10 @@ class GameWindow:
     def handle_server_message(self, message):
         try:
             data = json.loads(message)
-            # Check if 'action' is in the message before trying to access it
-            if 'action' not in data:
-                return
-
-            elif data['action'] == 'update_position':
-                self.update_player_position(data['new_position'])
+            if 'action' in data:
+                if data['action'] == 'update_position' and 'players' in data:
+                    self.update_player_position(data['players'])
+                # handle other actions
         except json.JSONDecodeError as e:
             print(f"JSON decode error: {e}")
             print(f"Faulty message: {message}")
@@ -154,12 +146,19 @@ class GameWindow:
 
     def listen_to_server(self):
         #  Continuously listen for messages from the server and handle them
+
+        buffer = ""
         while True:
             try:
-                server_message = self.server_connection.recv(1024).decode('ascii')
-                if server_message:
-                    # print("Received from server:", server_message)
-                    self.handle_server_message(server_message)
+                data = self.server_connection.recv(1024).decode('ascii')
+                if data:
+                    buffer += data
+                    while '\n' in buffer:
+                        message, buffer = buffer.split('\n', 1)
+                        self.handle_server_message(message)
+                else:
+                    print("Connection closed by server")
+                    break
             except Exception as e:
                 print(f"Error receiving server message: {e}")
                 break
