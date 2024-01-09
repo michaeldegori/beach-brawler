@@ -83,6 +83,12 @@ def initial_position(player_number):
 
 def game_loop():
     while True:
+        # Update each player's state
+        for player in active_players:
+            if player is not None:
+                player.update()
+
+        # After updating, check for position changes and broadcast
         player_data = tuple({'id': p.id, 'position': p.position} if p is not None else None for p in active_players)
         update_message = {
             "action": "update_position",
@@ -93,21 +99,22 @@ def game_loop():
             if player is None:
                 continue
 
-            player.update()
-
             if significant_position_change(player.position, player.last_known_position):
                 player.last_known_position = player.position
 
                 # Broadcast the update to all clients
-                for port, client_socket in client_sockets.items():
-                    try:
-                        client_socket.send((json.dumps(update_message) + '\n').encode('ascii'))
-                    except Exception as e:
-                        print(f"Error sending update to {port}: {e}")
-                        disconnect_client(port)
+                broadcast_update_to_all_clients(update_message)
 
-        # Sleep for 1/30th of a second (30FPS)
         time.sleep(0.033)
+
+
+def broadcast_update_to_all_clients(update_message):
+    for port, client_socket in client_sockets.items():
+        try:
+            client_socket.send((json.dumps(update_message) + '\n').encode('ascii'))
+        except Exception as e:
+            print(f"Error sending update to {port}: {e}")
+            disconnect_client(port)
 
 
 def significant_position_change(current_position, last_known_position):
